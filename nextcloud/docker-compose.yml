@@ -1,0 +1,91 @@
+---
+version: "3.6"
+
+services:
+  nextcloud:
+    build:
+      context: .
+      # Use the following example for adding cron:
+      # https://github.com/nextcloud/docker/tree/master/.examples/dockerfiles/cron/apache
+      dockerfile_inline: |
+        FROM nextcloud:latest
+
+        RUN apt-get update && apt-get install -y \
+            supervisor \
+          && rm -rf /var/lib/apt/lists/* \
+          && mkdir /var/log/supervisord /var/run/supervisord
+
+        RUN cat <<EOF > /supervisord.conf
+          [supervisord]
+          nodaemon=true
+          logfile=/var/log/supervisord/supervisord.log
+          pidfile=/var/run/supervisord/supervisord.pid
+          childlogdir=/var/log/supervisord/
+          logfile_maxbytes=50MB                           ; maximum size of logfile before rotation
+          logfile_backups=10                              ; number of backed up logfiles
+          loglevel=error
+
+          [program:apache2]
+          stdout_logfile=/dev/stdout
+          stdout_logfile_maxbytes=0
+          stderr_logfile=/dev/stderr
+          stderr_logfile_maxbytes=0
+          command=apache2-foreground
+
+          [program:cron]
+          stdout_logfile=/dev/stdout
+          stdout_logfile_maxbytes=0
+          stderr_logfile=/dev/stderr
+          stderr_logfile_maxbytes=0
+          command=/cron.sh
+        EOF
+
+        ENV NEXTCLOUD_UPDATE=1
+
+        CMD ["/usr/bin/supervisord", "-c", "/supervisord.conf"]
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+      - redis
+    networks:
+      - nextcloud
+    volumes:
+      - "./nextcloud_var_www_html:/var/www/html"
+      - "./data:/var/www/html/data"
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: "fPq1kmZGOj5QCf+N"
+      REDIS_HOST: redis
+      NEXTCLOUD_TRUSTED_DOMAINS: "cloud.gry.sh"
+      # See here: https://github.com/nextcloud/docker#using-the-apache-image-behind-a-reverse-proxy-and-auto-configure-server-host-and-protocol
+      APACHE_DISABLE_REWRITE_IP: 1
+      TRUSTED_PROXIES: 127.0.0.1
+      OVERWRITECLIURL: "https://cloud.gry.sh/"
+      OVERWRITEHOST: "cloud.gry.sh"
+      OVERWRITEPROTOCOL: "https"
+    
+  db:
+    image: postgres:latest
+    restart: unless-stopped
+    networks:
+      - nextcloud
+    volumes:
+      - "./database:/var/lib/postgresql/data"
+    environment:
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: "fPq1kmZGOj5QCf+N"
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    networks:
+      - nextcloud
+
+networks:
+  nextcloud:
+    external: false
